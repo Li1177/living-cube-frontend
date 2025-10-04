@@ -8,7 +8,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { socket } from '../lib/socket';
 
 // ===================================================================
-//  1. 2D UI 层组件 (保持不变)
+//  1. 2D UI 层组件 (轻微优化: 添加随机 key 防重复)
 // ===================================================================
 const DanmakuUI = ({ danmakus, onSendDanmaku, onPurchase, purchaseState, mediaItem }) => {
   console.log('--- DanmakuUI Component Re-rendered ---');
@@ -32,7 +32,7 @@ const DanmakuUI = ({ danmakus, onSendDanmaku, onPurchase, purchaseState, mediaIt
   };
 
   const buttonText = {
-    idle: '$0.01 Purchase',
+    idle: 'Unlock for $0.99',
     pending: 'Redirecting...',
     success: 'Success!',
     error: 'Payment Failed, Try Again'
@@ -41,9 +41,9 @@ const DanmakuUI = ({ danmakus, onSendDanmaku, onPurchase, purchaseState, mediaIt
   return (
     <>
       <div className="danmaku-container">
-        {danmakus.map((d) => (
+        {danmakus.map((d, index) => (
           <div
-            key={d.id || Math.random()}
+            key={d.id || `${d.message}-${index}-${Date.now()}`}  // 优化: 随机 key 防重复渲染
             className="danmaku-item"
             style={{
               top: `${Math.random() * 80 + 5}%`,
@@ -174,27 +174,31 @@ const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
       <mesh geometry={frameGeometry} material={frameMaterial} />
       {texture && <mesh position={[0, 0, 0.051]}><planeGeometry args={[displayWidth, displayHeight]} /><meshBasicMaterial map={texture} /></mesh>}
       <mesh position={[0, 0, -0.051]}><planeGeometry args={[frameWidth, frameHeight]} /><meshPhysicalMaterial color={0xffd700} metalness={0.9} roughness={0.1} /></mesh>
-      <Text position={[0, 0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={0.15} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">神秘的弗兰克@哔哩哔哩</Text>
-      <Text position={[0, -0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={0.15} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">一键三连啊老铁！！！</Text>
+      <Text position={[0, 0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={0.15} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">Welcome to the Cube!</Text>
+      <Text position={[0, -0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={0.15} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">Love it? Share a danmaku!</Text>
     </group>
   );
 };
 
 
 // ===================================================================
-//  3. “智能容器”组件 (添加了诊断日志)
+//  3. “智能容器”组件 (核心修复: 乐观更新 + handler Ref 防 unmount 错误)
 // ===================================================================
 export const LargeMedia3D = ({ mediaItem, startPosition, onClose }) => {
   const [danmakus, setDanmakus] = useState([]);
   const [purchaseState, setPurchaseState] = useState('idle');
+  const newDanmakuHandlerRef = useRef(null);  // 新增: Ref 存储 handler，防重复绑定/泄漏
 
   useEffect(() => {
     if (!mediaItem || !mediaItem.id) return;
     
-    // --- 关键修正：这里是本次修改的唯一核心 ---
+    // --- 诊断: Socket 连接状态检查 ---
+    console.log('--- LargeMedia3D: Initializing for mediaItem.id:', mediaItem.id);
+    console.log('Socket connected?', socket.connected);
+    
+    // 加载历史弹幕 (API 保持不变)
     fetch(`/api/danmaku?wallpaper_id=${mediaItem.id}`)
       .then((res) => {
-        // 诊断步骤 1: 检查 HTTP 响应是否成功
         console.log('API Response Status:', res.status, res.statusText);
         if (!res.ok) {
           console.error('API request failed!');
@@ -202,40 +206,65 @@ export const LargeMedia3D = ({ mediaItem, startPosition, onClose }) => {
         return res.json();
       })
       .then((data) => {
-        // 诊断步骤 2: 打印从 API 返回的原始数据
         console.log('--- API Response Data for Historical Danmakus ---');
         console.log('Received data:', data);
 
         if (data && Array.isArray(data)) {
           console.log(`Setting ${data.length} danmakus into state.`);
-          setDanmakus(data);
+          // 优化: 添加 id/timestamp 以匹配 server 格式
+          setDanmakus(data.map(d => ({ ...d, id: d.id || Date.now() + Math.random(), timestamp: d.timestamp || Date.now() })));
         } else {
           console.error('Data received is NOT a valid array:', data);
         }
       })
       .catch(error => {
-        // 诊断步骤 3: 捕获并打印任何网络层或 JSON 解析错误
         console.error('Error fetching or parsing danmakus:', error);
       });
 
-    socket.emit('join_room', mediaItem.id);
+    // --- 核心修复 1: 匹配 server 'join-room' 事件 (kebab-case) ---
+    socket.emit('join-room', mediaItem.id);  // 改: 'join_room' → 'join-room'
+    console.log('Emitted join-room for:', mediaItem.id);
+
+    // --- 核心修复 2: 匹配 server 'new-danmaku' 事件 + 用 Ref 存储 handler ---
     const handleNewDanmaku = (newDanmaku) => {
-      setDanmakus((prev) => [...prev, newDanmaku]);
+      console.log('Received new-danmaku from server:', newDanmaku);
+      // 检查组件是否 mounted (防 unmount 更新)
+      if (newDanmakuHandlerRef.current) {
+        setDanmakus((prev) => [...prev, { ...newDanmaku, id: newDanmaku.id || Date.now() + Math.random() }]);
+      }
     };
-    socket.on('receive_danmaku', handleNewDanmaku);
+    newDanmakuHandlerRef.current = handleNewDanmaku;  // 存储到 Ref
+    socket.on('new-danmaku', handleNewDanmaku);  // 改: 'receive_danmaku' → 'new-danmaku'
 
     return () => {
-      socket.emit('leave_room', mediaItem.id);
-      socket.off('receive_danmaku', handleNewDanmaku);
+      // --- 核心修复 3: 添加 leave-room 事件 (匹配 server) ---
+      socket.emit('leave-room', mediaItem.id);  // 新增: 清理房间
+      console.log('Emitted leave-room for:', mediaItem.id);
+      socket.off('new-danmaku', handleNewDanmaku);
+      newDanmakuHandlerRef.current = null;  // 清空 Ref
     };
   }, [mediaItem]);
 
   const handleSendDanmaku = (message) => {
     if (!mediaItem) return;
-    socket.emit('send_danmaku', {
-      wallpaper_id: mediaItem.id,
+    // --- 核心修复 4: 乐观更新 (立即本地添加，server 确认同步) ---
+    const tempId = Date.now() + Math.random();  // 临时 ID
+    const optimisticDanmaku = {
+      id: tempId,
       message: message,
+      userId: socket.id || 'anonymous',
+      timestamp: Date.now(),
+    };
+    setDanmakus((prev) => [...prev, optimisticDanmaku]);  // 立即显示 (乐观)
+    console.log('Optimistic update: Added local danmaku:', optimisticDanmaku);
+
+    // 发送到 server (异步，确认后同步)
+    socket.emit('send-danmaku', {
+      roomId: mediaItem.id,  // 改: 'wallpaper_id' → 'roomId'
+      message: message,
+      userId: socket.id || 'anonymous',
     });
+    console.log('Emitted send-danmaku:', { roomId: mediaItem.id, message });
   };
 
   const handlePurchase = async () => {
@@ -279,7 +308,7 @@ export const LargeMedia3D = ({ mediaItem, startPosition, onClose }) => {
 
 
 // ===================================================================
-//  Cube 组件 (保持不变)
+//  4. Cube 组件 (保持不变)
 // ===================================================================
 export const Cube = ({ media, onMediaClick, onRefreshComplete, refreshing }) => {
   // ... 您原有的 Cube 组件代码保持不变 ...

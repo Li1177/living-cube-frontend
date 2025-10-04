@@ -56,7 +56,7 @@ export default function LivingCubeApp() {
   const handleRefreshComplete = () => { loadMedia(); setRefreshing(false); };
 
   if (loading) {
-    return <div className="w-screen h-screen flex items-center justify-center bg-black text-white">加载中...</div>;
+    return <div className="w-screen h-screen flex items-center justify-center bg-black text-white">Loading artworks...</div>;
   }
 
   return (
@@ -66,7 +66,7 @@ export default function LivingCubeApp() {
         className="absolute top-4 right-4 z-50 px-4 py-2 bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-600 active:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         disabled={refreshing}
       >
-        {refreshing ? '刷新中...' : '刷新媒体'}
+        {refreshing ? 'Refreshing...' : 'Refresh Gallery'}
       </button>
       
       <Canvas style={{ background: '#000' }} camera={{ position: [5, 5, 5], fov: 50 }} onCreated={({ gl }) => gl.setClearColor(new THREE.Color('#000000'))}>

@@ -67,7 +67,7 @@ export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit }) => {
   };
   
   const buttonText = {
-      idle: 'Purchase for $0.01',
+      idle: 'Unlock for $0.99',
       pending: 'Redirecting...',
       error: 'Payment Failed, Retry'
   }[purchaseState];

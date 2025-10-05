@@ -4,8 +4,10 @@ const DIRECTUS_STATIC_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
 export default async function handler(req, res) {
   const commonHeaders = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${DIRECTUS_STATIC_TOKEN}`,
+    'Authorization': `Bearer ${DIRECTUS_STATIC_TOKEN || ''}`,  // 修复: fallback 空字符串，日志 token 状态
   };
+
+  console.log('Danmaku API called with method:', req.method, 'Token defined?', !!DIRECTUS_STATIC_TOKEN);  // 诊断日志
 
   if (req.method === 'GET') {
     try {
@@ -15,8 +17,9 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'wallpaper_id is required' });
       }
 
-      // MODIFIED: Removed the "&sort=date_created" part to avoid permission errors.
       const fetchUrl = `${DIRECTUS_URL}/items/danmaku?filter[wallpaper_id][_eq]=${wallpaper_id}`;
+
+      console.log('GET fetch URL:', fetchUrl);  // 诊断 URL
 
       const response = await fetch(fetchUrl, {
         method: 'GET',
@@ -24,7 +27,6 @@ export default async function handler(req, res) {
       });
 
       if (!response.ok) {
-        // This block will catch errors if they still happen
         const errorBody = await response.text();
         console.error("Directus Error:", errorBody);
         throw new Error(`Directus responded with status ${response.status}`);

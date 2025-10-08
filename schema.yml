@@ -1,0 +1,329 @@
+# Directus Schema Snapshot for Living Cube Project (v11+)
+# Based on project: 3D wallpaper cube with danmaku and alipay purchases
+# Collections: wallpapers, danmaku, purchases with fields/relations
+# Roles: Public (read-only wallpapers/danmaku/directus_files), Administrator (full)
+# User: API User with Administrator role for write (Socket.io/Alipay)
+# Storage: OCI for wallpaper_file
+version: '1'
+
+collections:
+  - collection: 'wallpapers'
+    schema: null
+    meta:
+      icon: 'image'
+      note: 'Wallpapers for 3D cube display'
+      display_template: '{{name}}'
+      translation_key: 'wallpapers'
+      group: null
+      hidden: false
+      singleton: false
+      settings:
+        layout: 'table'
+        layout_mode: 'standard'
+        sort_field: 'created_at'
+        sort_order: 'desc'
+      accountability: 'all'
+    fields:
+      - field: 'id'
+        type: 'alias'
+        meta:
+          special: ['uuidv4', 'primary', 'readonly', 'required', 'list']
+      - field: 'name'
+        type: 'string'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            placeholder: 'Wallpaper name'
+        schema:
+          is_nullable: false
+      - field: 'description'
+        type: 'text'
+        meta:
+          interface: 'input'
+          options:
+            placeholder: 'Description'
+        schema:
+          is_nullable: true
+      - field: 'tags'
+        type: 'json'
+        meta:
+          interface: 'tags'
+        schema:
+          is_nullable: true
+      - field: 'price_cents'
+        type: 'integer'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            min: 0
+        schema:
+          is_nullable: false
+          default_value: 0
+      - field: 'wallpaper_file'
+        type: 'file'
+        meta:
+          required: true
+          interface: 'file-image'
+          options:
+            storage: 'oci'  # OCI adapter for file storage
+            crop: { key: null, cropMode: 'manual', width: null, height: null }
+            thumbnails: {}
+        schema:
+          is_nullable: false
+      - field: 'created_at'
+        type: 'alias'
+        meta:
+          special: ['datecreated', 'readonly']
+      - field: 'updated_at'
+        type: 'alias'
+        meta:
+          special: ['dateupdated', 'readonly']
+    relations:
+      - many_collection: 'danmaku'
+        many_field: 'video_id'
+      - many_collection: 'purchases'
+        many_field: 'wallpaper_id'
+
+  - collection: 'danmaku'
+    schema: null
+    meta:
+      icon: 'comment'
+      note: 'Danmaku comments with timestamp for video'
+      display_template: '{{content}}'
+      translation_key: 'danmaku'
+      group: null
+      hidden: false
+      singleton: false
+      settings:
+        layout: 'table'
+        layout_mode: 'standard'
+        sort_field: 'timestamp'
+        sort_order: 'asc'
+      accountability: 'all'
+    fields:
+      - field: 'id'
+        type: 'alias'
+        meta:
+          special: ['uuidv4', 'primary', 'readonly', 'required', 'list']
+      - field: 'video_id'
+        type: 'string'
+        meta:
+          required: true
+          interface: 'select-dropdown'
+          options:
+            choices: []  # Auto-populate from relation
+        schema:
+          is_nullable: false
+      - field: 'user_id'
+        type: 'string'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            placeholder: 'User ID'
+        schema:
+          is_nullable: false
+      - field: 'content'
+        type: 'text'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            placeholder: 'Danmaku text'
+        schema:
+          is_nullable: false
+      - field: 'timestamp'
+        type: 'float'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            min: 0
+            step: 0.01
+        schema:
+          is_nullable: false
+      - field: 'color'
+        type: 'string'
+        meta:
+          interface: 'input'
+          options:
+            placeholder: '#FFFFFF'
+        schema:
+          default_value: '#FFFFFF'
+          is_nullable: true
+      - field: 'type'
+        type: 'select'
+        meta:
+          required: true
+          interface: 'select-dropdown'
+          options:
+            choices:
+              - text: 'scroll'
+                value: 'scroll'
+              - text: 'top'
+                value: 'top'
+              - text: 'bottom'
+                value: 'bottom'
+        schema:
+          default_value: 'scroll'
+          is_nullable: false
+      - field: 'created_at'
+        type: 'alias'
+        meta:
+          special: ['datecreated', 'readonly']
+      - field: 'updated_at'
+        type: 'alias'
+        meta:
+          special: ['dateupdated', 'readonly']
+    relations:
+      - collection: 'wallpapers'
+        field: 'video_id'
+        meta:
+          one_collection_field: true
+
+  - collection: 'purchases'
+    schema: null
+    meta:
+      icon: 'shopping_cart'
+      note: 'Alipay purchase records'
+      display_template: '{{alipay_order_id}}'
+      translation_key: 'purchases'
+      group: null
+      hidden: false
+      singleton: false
+      settings:
+        layout: 'table'
+        layout_mode: 'standard'
+        sort_field: 'created_at'
+        sort_order: 'desc'
+      accountability: 'all'
+    fields:
+      - field: 'id'
+        type: 'alias'
+        meta:
+          special: ['uuidv4', 'primary', 'readonly', 'required', 'list']
+      - field: 'user_id'
+        type: 'string'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            placeholder: 'User ID'
+        schema:
+          is_nullable: false
+      - field: 'wallpaper_id'
+        type: 'string'
+        meta:
+          required: true
+          interface: 'select-dropdown'
+          options:
+            choices: []  # Auto-populate from relation
+        schema:
+          is_nullable: false
+      - field: 'price_cents'
+        type: 'integer'
+        meta:
+          required: true
+          interface: 'input'
+          options:
+            min: 0
+        schema:
+          is_nullable: false
+      - field: 'alipay_order_id'
+        type: 'string'
+        meta:
+          interface: 'input'
+          options:
+            placeholder: 'Alipay order ID'
+        schema:
+          is_nullable: true
+      - field: 'status'
+        type: 'select'
+        meta:
+          required: true
+          interface: 'select-dropdown'
+          options:
+            choices:
+              - text: 'pending'
+                value: 'pending'
+              - text: 'paid'
+                value: 'paid'
+              - text: 'failed'
+                value: 'failed'
+        schema:
+          default_value: 'pending'
+          is_nullable: false
+      - field: 'created_at'
+        type: 'alias'
+        meta:
+          special: ['datecreated', 'readonly']
+      - field: 'updated_at'
+        type: 'alias'
+        meta:
+          special: ['dateupdated', 'readonly']
+    relations:
+      - collection: 'wallpapers'
+        field: 'wallpaper_id'
+        meta:
+          one_collection_field: true
+
+# Roles & Permissions
+roles:
+  - name: 'Public'
+    description: 'Read-only for frontend (wallpapers, danmaku, files)'
+    admin_app_access: false
+    app_access: 'full'
+    enforce_tfa: false
+    external_id: null
+    ip_whitelist: null
+    policies: []
+    scope: 'public'
+    collections:
+      - collection: 'wallpapers'
+        action: 'read'
+      - collection: 'danmaku'
+        action: 'read'
+      - collection: 'directus_files'
+        action: 'read'
+      - collection: 'purchases'
+        action: null  # No access
+
+  - name: 'Administrator'
+    description: 'Full access for Socket.io/Alipay write'
+    admin_app_access: true
+    app_access: 'full'
+    enforce_tfa: false
+    external_id: null
+    ip_whitelist: null
+    policies: []
+    scope: 'all'
+    collections:
+      - collection: '*'
+        action: '*'
+
+# Users (API User with Administrator role for write)
+users:
+  - id: 'api-user-uuid'  # Auto or generate UUID
+    email: 'api@yourproject.cc'
+    status: 'active'
+    role: 'administrator'
+    token: 'GMqR8Hb_zkd43NN9lHE30jj3R96RoV1y'  # Your new token
+    password: null  # Not set, use token
+    first_name: 'API'
+    last_name: 'User'
+    location: null
+    title: null
+    description: null
+    avatar_file: null
+    language: 'en-US'
+    theme: 'auto'
+    tfa_secret: null
+    external_identifier: null
+    provider: 'directus'
+    app_access: 'full'
+    admin_app_access: true
+    enforce_tfa: false
+    ip_whitelist: null
+    policies: []

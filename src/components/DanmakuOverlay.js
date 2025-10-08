@@ -1,8 +1,8 @@
-// 文件路径: D:\Projects\living-cube-frontend\src\components\DanmakuOverlay.js
+// 文件路径: src/components/DanmakuOverlay.js (生产适配版)
 import React, { useState } from 'react';
+import { socket } from '../lib/socket';  // 新增：import socket for userId
 
 // 这是一个独立的 CSS 样式块，专门用于弹幕的滚动动画
-// 我们将它直接放在文件里，方便您复制
 const danmakuAnimation = `
   @keyframes danmaku-scroll {
     from {
@@ -15,10 +15,8 @@ const danmakuAnimation = `
 `;
 
 // 弹幕的单个条目组件
-const DanmakuTrackItem = ({ message }) => {
-  // 每条弹幕的持续时间随机，看起来更自然
+const DanmakuTrackItem = ({ content }) => {
   const duration = Math.random() * 5 + 8; // 8到13秒
-  // 每条弹幕的垂直位置随机
   const topPosition = Math.random() * 70 + 5; // 5% 到 75% 之间
 
   return (
@@ -26,36 +24,36 @@ const DanmakuTrackItem = ({ message }) => {
       className="absolute whitespace-nowrap text-white text-2xl font-bold"
       style={{
         top: `${topPosition}%`,
-        right: 0, // 从右边开始
-        // 应用 CSS 动画
+        right: 0,
         animation: `danmaku-scroll ${duration}s linear`,
-        // 描边效果，增强可读性
         textShadow: '1px 1px 2px black, -1px -1px 2px black, 1px -1px 2px black, -1px 1px 2px black',
       }}
     >
-      {message}
+      {content}
     </div>
   );
 };
 
 // 整个 2D 界面的主组件
-export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit }) => {
+export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit, purchaseState }) => {
   const [danmakuInput, setDanmakuInput] = useState('');
-  const [purchaseState, setPurchaseState] = useState('idle');
+  const [localPurchaseState, setLocalPurchaseState] = useState('idle');  // 生产：本地状态，同步 props
     
   const handlePurchase = async () => {
-      setPurchaseState('pending');
+      setLocalPurchaseState('pending');
       try {
           const response = await fetch('/api/create-payment', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mediaId: mediaItem.id }),
+              body: JSON.stringify({ mediaId: mediaItem.id, userId: socket.id }),  // 生产：加 userId
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.message || 'Failed to create payment');
           if (data.paymentUrl) window.location.href = data.paymentUrl;
+          else setLocalPurchaseState('success');  // 生产：成功状态
       } catch (error) {
-          setPurchaseState('error');
+          console.error('Purchase error:', error);  // 生产：log 而非 unused var
+          setLocalPurchaseState('error');
       }
   };
 
@@ -66,32 +64,29 @@ export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit }) => {
       setDanmakuInput('');
   };
   
+  // 生产：动态价格
+  const priceInDollars = mediaItem?.price_cents ? (mediaItem.price_cents / 100).toFixed(2) : '0.99';
   const buttonText = {
-      idle: 'Unlock for $0.99',
+      idle: `Unlock for $${priceInDollars}`,
       pending: 'Redirecting...',
+      success: 'Unlocked!',  // 新增：成功状态
       error: 'Payment Failed, Retry'
-  }[purchaseState];
+  }[localPurchaseState || purchaseState];  // 同步 props
 
   return (
-    // 这个主容器是我们的“玻璃”，它覆盖整个屏幕
-    // pointer-events-none 确保它不会拦截对底下 3D Canvas 的鼠标操作
     <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-      {/* 注入我们定义的动画 */}
       <style>{danmakuAnimation}</style>
       
-      {/* 这是弹幕滚动的轨道区域 */}
       <div className="relative w-full h-full overflow-hidden">
-        {danmakuList.map((danmaku) => (
-          <DanmakuTrackItem key={danmaku.id} message={danmaku.message} />
+        {danmakuList.map((danmaku, index) => (
+          <DanmakuTrackItem key={danmaku.id || index} content={danmaku.content} />  // 生产：fallback key
         ))}
       </div>
 
-      {/* 这是底部的操作 UI 区域 */}
-      {/* pointer-events-auto 让这个区域可以响应鼠标点击 */}
       <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4 pointer-events-auto">
           <button
               onClick={handlePurchase}
-              disabled={purchaseState !== 'idle' && purchaseState !== 'error'}
+              disabled={localPurchaseState === 'pending'}
               className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-500 active:bg-blue-700 transition-colors disabled:opacity-50"
           >
               {buttonText}
@@ -101,7 +96,8 @@ export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit }) => {
                   type="text"
                   value={danmakuInput}
                   onChange={(e) => setDanmakuInput(e.target.value)}
-                  placeholder="Post a comment..."
+                  placeholder="Send a comment..."
+                  maxLength={50}  // 生产：限长
                   className="w-64 px-4 py-2 bg-gray-800 bg-opacity-80 text-white rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
               />
               <button type="submit" className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500">

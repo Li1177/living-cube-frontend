@@ -1,22 +1,7 @@
-// src/pages/api/verify-payment.js
+// src/pages/api/verify-payment.js (生产适配版)
 // 新增 API 路由：验证支付宝支付结果，并更新订单状态，返回下载链接
 
-import AlipaySdk from 'alipay-sdk';
-import { createDirectus, rest, readItem } from '@directus/sdk';
-
-const ALIPAY_GATEWAY = 'https://openapi-sandbox.dl.alipaydev.com/gateway.do';
-
-const alipay = new AlipaySdk({
-  appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.ALIPAY_PRIVATE_KEY,
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: ALIPAY_GATEWAY,
-  timeout: 5000,
-  camelcase: false,
-});
-
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-const DIRECTUS_URL = 'http://167.234.212.43:8055';
+const ALIPAY_GATEWAY = 'https://openapi-sandbox.alipaydev.com/gateway.do';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -24,21 +9,47 @@ export default async function handler(req, res) {
     return res.status(405).end('Method Not Allowed');
   }
 
+  // 生产：验证 JSON body
+  if (req.headers['content-type'] !== 'application/json') {
+    return res.status(400).json({ message: 'Content-Type must be application/json' });
+  }
+
   try {
+    // 动态 import SDK (ESLint 合规, 避 top-level import 问题)
+    const { AlipaySdk } = await import('alipay-sdk');
+    const { createDirectus, rest, readItem, updateItem, staticToken } = await import('@directus/sdk');
+
+    // 初始化 Alipay SDK
+    const alipay = new AlipaySdk({
+      appId: process.env.ALIPAY_APP_ID,
+      privateKey: process.env.ALIPAY_PRIVATE_KEY,
+      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+      gateway: ALIPAY_GATEWAY,
+      timeout: 5000,
+      camelcase: false,
+    });
+
+    const DIRECTUS_URL = process.env.DIRECTUS_URL || 'https://api.run-gen.com';
+    const directus = createDirectus(DIRECTUS_URL)
+      .with(staticToken(process.env.DIRECTUS_STATIC_TOKEN))
+      .with(rest());
+
     const { outTradeNo } = req.body;
 
     if (!outTradeNo) {
-      return res.status(400).json({ message: '错误：缺少 outTradeNo' });
+      return res.status(400).json({ message: 'Error: Missing outTradeNo' });
     }
 
-    const purchaseIdMatch = outTradeNo.match(/^LC-(\d+)-/);
-    if (!purchaseIdMatch) {
-      return res.status(400).json({ message: '错误：无效的 outTradeNo 格式' });
-    }
-    const purchaseId = parseInt(purchaseIdMatch[1], 10);
-
-    if (!DIRECTUS_TOKEN) {
-      return res.status(500).json({ message: '服务器配置错误：缺少 Directus 静态 token' });
+    let purchaseId;
+    try {
+      const purchaseIdMatch = outTradeNo.match(/^LC-(\d+)-/);
+      if (!purchaseIdMatch) {
+        return res.status(400).json({ message: 'Error: Invalid outTradeNo format' });
+      }
+      purchaseId = parseInt(purchaseIdMatch[1], 10);
+    } catch (parseError) {
+      console.error('Parse error:', parseError);  // 生产：log unused var
+      return res.status(400).json({ message: 'Error: Invalid purchase ID in outTradeNo' });
     }
 
     const queryResult = await alipay.exec('alipay.trade.query', {
@@ -49,104 +60,51 @@ export default async function handler(req, res) {
 
     if (queryResult.code !== '10000') {
       return res.status(400).json({ 
-        message: '支付验证失败', 
-        alipayResponse: queryResult.msg || '未知错误' 
+        message: 'Payment verification failed', 
+        alipayResponse: queryResult.msg || 'Unknown error' 
       });
     }
 
     if (queryResult.trade_status !== 'TRADE_SUCCESS') {
       return res.status(400).json({ 
-        message: '支付尚未完成或失败', 
+        message: 'Payment not completed or failed', 
         tradeStatus: queryResult.trade_status 
       });
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    await directus.request(updateItem('purchases', purchaseId, {
+      status: 'paid',
+    }));
 
-    try {
-      const updateResponse = await fetch(`${DIRECTUS_URL}/items/purchases/${purchaseId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${DIRECTUS_TOKEN}`,
-        },
-        body: JSON.stringify({
-          status: 'paid',
-        }),
-        signal: controller.signal,
-      });
+    const purchase = await directus.request(readItem('purchases', purchaseId, {
+      fields: ['wallpaper_id'],
+    }));
+    const wallpaperId = purchase.wallpaper_id;
 
-      if (!updateResponse.ok) {
-        const errorText = await updateResponse.text();
-        throw new Error(`更新订单失败: ${updateResponse.status} - ${errorText}`);
-      }
-
-      const purchaseResponse = await fetch(`${DIRECTUS_URL}/items/purchases/${purchaseId}?fields=wallpaper`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${DIRECTUS_TOKEN}`,
-        },
-        signal: controller.signal,
-      });
-
-      if (!purchaseResponse.ok) {
-        const errorText = await purchaseResponse.text();
-        throw new Error(`查询订单失败: ${purchaseResponse.status} - ${errorText}`);
-      }
-
-      const purchase = await purchaseResponse.json();
-      const wallpaperId = purchase.data ? purchase.data.wallpaper : purchase.wallpaper;
-
-      if (!wallpaperId) {
-        return res.status(404).json({ message: '订单中未找到壁纸 ID' });
-      }
-
-      const wallpaperResponse = await fetch(`${DIRECTUS_URL}/items/wallpapers/${wallpaperId}?fields=name,wallpaper_file`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${DIRECTUS_TOKEN}`,
-        },
-        signal: controller.signal,
-      });
-
-      if (!wallpaperResponse.ok) {
-        const errorText = await wallpaperResponse.text();
-        throw new Error(`查询壁纸失败: ${wallpaperResponse.status} - ${errorText}`);
-      }
-
-      const wallpaper = await wallpaperResponse.json();
-      const wallpaperData = wallpaper.data || wallpaper;
-
-      if (!wallpaperData || !wallpaperData.wallpaper_file) {
-        return res.status(404).json({ message: '壁纸文件未找到' });
-      }
-
-      const fileId = wallpaperData.wallpaper_file;
-      const downloadUrl = `${DIRECTUS_URL}/assets/${fileId}?access_token=${DIRECTUS_TOKEN}`;
-
-      clearTimeout(timeoutId);
-
-      res.status(200).json({ 
-        message: '支付验证成功，订单已更新',
-        downloadUrl: downloadUrl,
-        wallpaperName: wallpaperData.name,
-        outTradeNo: outTradeNo
-      });
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      if (fetchError.name === 'AbortError') {
-        throw new Error('Directus 查询超时 (30s) - 请检查服务器连接');
-      }
-      throw fetchError;
+    if (!wallpaperId) {
+      return res.status(404).json({ message: 'Wallpaper ID not found in order' });
     }
 
-  } catch (error) {
-    console.error('验证支付错误:', error);
-    res.status(500).json({ 
-      message: '服务器内部错误', 
-      error: error.message 
+    const wallpaper = await directus.request(readItem('wallpapers', wallpaperId, {
+      fields: ['name', 'wallpaper_file'],
+    }));
+
+    if (!wallpaper || !wallpaper.wallpaper_file) {
+      return res.status(404).json({ message: 'Wallpaper file not found' });
+    }
+
+    const fileId = wallpaper.wallpaper_file;
+    const downloadUrl = `${DIRECTUS_URL}/assets/${fileId}`;
+
+    res.status(200).json({ 
+      message: 'Payment verified successfully, order updated',
+      downloadUrl: downloadUrl,
+      wallpaperName: wallpaper.name,
+      outTradeNo: outTradeNo
     });
+
+  } catch (error) {
+    console.error('Payment verification error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 }

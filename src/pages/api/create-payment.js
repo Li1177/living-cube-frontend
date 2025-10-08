@@ -1,19 +1,5 @@
-// src/pages/api/create-payment.js
-
-import AlipaySdk from 'alipay-sdk';
-import { createDirectus, rest, readItem, createItem } from '@directus/sdk';
-
-const ALIPAY_GATEWAY = 'https://openapi-sandbox.dl.alipaydev.com/gateway.do';
-
-// 现在初始化应该成功
-const alipay = new AlipaySdk({
-  appId: process.env.ALIPAY_APP_ID,
-  privateKey: process.env.ALIPAY_PRIVATE_KEY,
-  alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-  gateway: ALIPAY_GATEWAY,
-  timeout: 5000,
-  camelcase: false,
-});
+// src/pages/api/create-payment.js (生产适配版)
+const ALIPAY_GATEWAY = 'https://openapi-sandbox.alipaydev.com/gateway.do';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -21,12 +7,33 @@ export default async function handler(req, res) {
     return res.status(405).end('Method Not Allowed');
   }
 
+  // 生产：验证 JSON body
+  if (req.headers['content-type'] !== 'application/json') {
+    return res.status(400).json({ message: 'Content-Type must be application/json' });
+  }
+
   try {
-    const directus = createDirectus('http://167.234.212.43:8055').with(rest());
-    const { mediaId } = req.body;
+    // 动态 import SDK (ESLint 合规, 避 top-level require)
+    const { Alipay } = await import('alipay-sdk');
+    const { createDirectus, rest, readItem, createItem, updateItem, staticToken } = await import('@directus/sdk');
+
+    // 初始化 Alipay SDK
+    const alipay = new Alipay({
+      appId: process.env.ALIPAY_APP_ID,
+      privateKey: process.env.ALIPAY_PRIVATE_KEY,
+      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
+      gateway: ALIPAY_GATEWAY,
+      timeout: 5000,
+      camelcase: false,
+    });
+
+    const directus = createDirectus(process.env.DIRECTUS_URL)
+      .with(staticToken(process.env.DIRECTUS_STATIC_TOKEN))
+      .with(rest());
+    const { mediaId, userId = 'anonymous' } = req.body;
 
     if (!mediaId) {
-      return res.status(400).json({ message: '错误：缺少商品 ID (mediaId)' });
+      return res.status(400).json({ message: 'Error: Missing product ID (mediaId)' });
     }
 
     const wallpaper = await directus.request(readItem('wallpapers', mediaId, {
@@ -34,41 +41,45 @@ export default async function handler(req, res) {
     }));
     
     if (!wallpaper || wallpaper.price_cents === undefined || wallpaper.price_cents === null) {
-      return res.status(404).json({ message: `错误：ID 为 ${mediaId} 的壁纸不存在或价格未设置` });
+      return res.status(404).json({ message: `Error: Wallpaper with ID ${mediaId} does not exist or price is not set` });
     }
 
     const totalAmount = (wallpaper.price_cents / 100).toFixed(2);
 
     const newPurchase = await directus.request(createItem('purchases', {
-      wallpaper: wallpaper.id,
+      user_id: userId,
+      wallpaper_id: wallpaper.id,
+      price_cents: wallpaper.price_cents,
+      payment_provider: 'alipay',
       status: 'pending',
-      price_at_purchase_cents: wallpaper.price_cents,
     }));
     
     const outTradeNo = `LC-${newPurchase.id}-${Date.now()}`;
     
-    // 修改为 GET 方法，返回直接的支付 URL，便于前端跳转
+    await directus.request(updateItem('purchases', newPurchase.id, {
+      external_order_id: outTradeNo,
+    }));
+    
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.run-gen.com';
     const result = await alipay.pageExecute('alipay.trade.page.pay', 'GET', {
       bizContent: {
         out_trade_no: outTradeNo,
         product_code: 'FAST_INSTANT_TRADE_PAY',
         total_amount: totalAmount,
         subject: `LivingCube: ${wallpaper.name}`,
-        quit_url: 'http://localhost:3000',
+        quit_url: baseUrl,
+        return_url: `${baseUrl}/success`,
       },
-      return_url: 'http://localhost:3000/success',
     });
 
     res.status(200).json({ 
-      message: '支付宝支付URL已生成',
+      message: 'Alipay payment URL generated',
       paymentUrl: result,
       outTradeNo: outTradeNo
     });
 
   } catch (error) {
-    res.status(500).json({ 
-      message: '服务器内部错误',
-      error: error.message 
-    });
+    console.error('Payment creation error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 }

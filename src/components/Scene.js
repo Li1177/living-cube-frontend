@@ -1,105 +1,25 @@
-// 文件路径: src/components/Scene.js
-
-import { Text, Html, OrbitControls, Environment } from '@react-three/drei';
+// src/components/Scene.js (终极完整版 - 生产适配)
+import { Text, OrbitControls, Environment } from '@react-three/drei';
 import React, { Suspense, useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { Canvas, useLoader, useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry';
 import { socket } from '../lib/socket';
+import { DanmakuOverlay } from './DanmakuOverlay';  // 整合：用独立 Overlay 替换内嵌 UI
 
 // ===================================================================
-//  1. 2D UI 层组件 (轻微优化: 添加随机 key 防重复)
-// ===================================================================
-const DanmakuUI = ({ danmakus, onSendDanmaku, onPurchase, purchaseState, mediaItem }) => {
-  console.log('--- DanmakuUI Component Re-rendered ---');
-  console.log('Received `danmakus` prop with length:', danmakus.length);
-  console.log('Full `danmakus` prop content:', danmakus);
-  const [danmakuInput, setDanmakuInput] = useState('');
-  const [isUIVisible, setUIVisible] = useState(false);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setUIVisible(true);
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleSend = (e) => {
-    e.preventDefault();
-    if (danmakuInput.trim() === '') return;
-    onSendDanmaku(danmakuInput.trim());
-    setDanmakuInput('');
-  };
-
-  const buttonText = {
-    idle: 'Unlock for $0.99',
-    pending: 'Redirecting...',
-    success: 'Success!',
-    error: 'Payment Failed, Try Again'
-  }[purchaseState];
-
-  return (
-    <>
-      <div className="danmaku-container">
-        {danmakus.map((d, index) => (
-          <div
-            key={d.id || `${d.message}-${index}-${Date.now()}`}  // 优化: 随机 key 防重复渲染
-            className="danmaku-item"
-            style={{
-              top: `${Math.random() * 80 + 5}%`,
-              animationDuration: `${Math.random() * 5 + 8}s`,
-              color: ['#ffffff', '#ffdddd', '#ddffdd', '#ddddff'][Math.floor(Math.random() * 4)],
-            }}
-          >
-            {d.message}
-          </div>
-        ))}
-      </div>
-
-      <div
-        className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 transition-opacity duration-500"
-        style={{ opacity: isUIVisible ? 1 : 0 }}
-        onDoubleClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-center space-x-4 p-4">
-          <button
-            onClick={onPurchase}
-            disabled={purchaseState !== 'idle' && purchaseState !== 'error'}
-            className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-500 active:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {buttonText}
-          </button>
-
-          <form onSubmit={handleSend} className="flex items-center space-x-2">
-            <input
-              type="text"
-              value={danmakuInput}
-              onChange={(e) => setDanmakuInput(e.target.value)}
-              placeholder="Send a comment..."
-              maxLength={50}
-              className="px-4 py-2 w-56 bg-gray-800 text-white rounded-lg border-2 border-gray-600 focus:border-blue-500 focus:outline-none transition-colors"
-            />
-            <button
-              type="submit"
-              className="px-5 py-2 bg-green-600 text-white font-bold rounded-lg shadow-lg hover:bg-green-500 active:bg-green-700 transition-colors"
-            >
-              Send
-            </button>
-          </form>
-        </div>
-      </div>
-    </>
-  );
-};
-
-
-// ===================================================================
-//  2. 3D 场景组件 (保持不变)
+//  1. 3D 场景组件 (修复 state update warn)
 // ===================================================================
 const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
   const frameRef = useRef();
   const animationTime = useRef(0);
   const [aspectRatio, setAspectRatio] = useState(2 / 3);
+  const isMountedRef = useRef(true);  // 新增：防 unmounted setState
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   const texture = useMemo(() => {
     if (mediaItem.type === 'video') {
@@ -108,11 +28,15 @@ const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
       video.muted = false;
       video.crossOrigin = 'anonymous';
       const videoTexture = new THREE.VideoTexture(video);
-      video.onloadedmetadata = () => setAspectRatio(video.videoWidth / video.videoHeight);
+      video.onloadedmetadata = () => {
+        if (isMountedRef.current) setAspectRatio(video.videoWidth / video.videoHeight);  // 防 unmounted
+      };
       video.src = mediaItem.path;
       return videoTexture;
     } else {
-      const tex = new THREE.TextureLoader().load(mediaItem.path, (loadedTex) => setAspectRatio(loadedTex.image.naturalWidth / loadedTex.image.naturalHeight));
+      const tex = new THREE.TextureLoader().load(mediaItem.path, (loadedTex) => {
+        if (isMountedRef.current) setAspectRatio(loadedTex.image.naturalWidth / loadedTex.image.naturalHeight);  // 防 unmounted
+      });
       tex.colorSpace = THREE.SRGBColorSpace;
       return tex;
     }
@@ -180,107 +104,96 @@ const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
   );
 };
 
-
 // ===================================================================
-//  3. “智能容器”组件 (核心修复: 乐观更新 + handler Ref 防 unmount 错误)
+//  2. “智能容器”组件 (生产适配)
 // ===================================================================
 export const LargeMedia3D = ({ mediaItem, startPosition, onClose }) => {
   const [danmakus, setDanmakus] = useState([]);
   const [purchaseState, setPurchaseState] = useState('idle');
-  const newDanmakuHandlerRef = useRef(null);  // 新增: Ref 存储 handler，防重复绑定/泄漏
+  const newDanmakuHandlerRef = useRef(null);
+  const isMountedRef = useRef(false);  // 生产：防 unmounted setState
 
   useEffect(() => {
+    isMountedRef.current = true;
     if (!mediaItem || !mediaItem.id) return;
-    
-    // --- 诊断: Socket 连接状态检查 ---
-    console.log('--- LargeMedia3D: Initializing for mediaItem.id:', mediaItem.id);
-    console.log('Socket connected?', socket.connected);
-    
-    // 加载历史弹幕 (API 保持不变)
-    fetch(`/api/danmaku?wallpaper_id=${mediaItem.id}`)
-      .then((res) => {
-        console.log('API Response Status:', res.status, res.statusText);
-        if (!res.ok) {
-          console.error('API request failed!');
-        }
-        return res.json();
-      })
-      .then((data) => {
-        console.log('--- API Response Data for Historical Danmakus ---');
-        console.log('Received data:', data);
 
+    // [核心修正] 修正 fetch URL 参数名
+    fetch(`/api/danmaku?wallpaper_id=${mediaItem.id}`)  // 统一：wallpaper_id
+      .then((res) => res.json())
+      .then((data) => {
         if (data && Array.isArray(data)) {
-          console.log(`Setting ${data.length} danmakus into state.`);
-          // 优化: 添加 id/timestamp 以匹配 server 格式
-          setDanmakus(data.map(d => ({ ...d, id: d.id || Date.now() + Math.random(), timestamp: d.timestamp || Date.now() })));
+          if (isMountedRef.current) setDanmakus(data);
         } else {
-          console.error('Data received is NOT a valid array:', data);
+          console.error('Initial danmaku data is not a valid array:', data);
         }
       })
       .catch(error => {
-        console.error('Error fetching or parsing danmakus:', error);
+        console.error('Error fetching initial danmakus:', error);
       });
 
-    // --- 核心修复 1: 匹配 server 'join-room' 事件 (kebab-case) ---
-    socket.emit('join-room', mediaItem.id);  // 改: 'join_room' → 'join-room'
-    console.log('Emitted join-room for:', mediaItem.id);
+    socket.emit('join-room', mediaItem.id);
 
-    // --- 核心修复 2: 匹配 server 'new-danmaku' 事件 + 用 Ref 存储 handler ---
     const handleNewDanmaku = (newDanmaku) => {
-      console.log('Received new-danmaku from server:', newDanmaku);
-      // 检查组件是否 mounted (防 unmount 更新)
-      if (newDanmakuHandlerRef.current) {
-        setDanmakus((prev) => [...prev, { ...newDanmaku, id: newDanmaku.id || Date.now() + Math.random() }]);
+      if (newDanmakuHandlerRef.current && isMountedRef.current) {
+        setDanmakus((prev) => [...prev, newDanmaku]);
       }
     };
-    newDanmakuHandlerRef.current = handleNewDanmaku;  // 存储到 Ref
-    socket.on('new-danmaku', handleNewDanmaku);  // 改: 'receive_danmaku' → 'new-danmaku'
+    newDanmakuHandlerRef.current = handleNewDanmaku;
+    socket.on('new-danmaku', handleNewDanmaku);
 
     return () => {
-      // --- 核心修复 3: 添加 leave-room 事件 (匹配 server) ---
-      socket.emit('leave-room', mediaItem.id);  // 新增: 清理房间
-      console.log('Emitted leave-room for:', mediaItem.id);
+      isMountedRef.current = false;
+      socket.emit('leave-room', mediaItem.id);
       socket.off('new-danmaku', handleNewDanmaku);
-      newDanmakuHandlerRef.current = null;  // 清空 Ref
+      newDanmakuHandlerRef.current = null;
     };
   }, [mediaItem]);
 
-  const handleSendDanmaku = (message) => {
-    if (!mediaItem) return;
-    // --- 核心修复 4: 乐观更新 (立即本地添加，server 确认同步) ---
-    const tempId = Date.now() + Math.random();  // 临时 ID
-    const optimisticDanmaku = {
-      id: tempId,
-      message: message,
-      userId: socket.id || 'anonymous',
-      timestamp: Date.now(),
-    };
-    setDanmakus((prev) => [...prev, optimisticDanmaku]);  // 立即显示 (乐观)
-    console.log('Optimistic update: Added local danmaku:', optimisticDanmaku);
-
-    // 发送到 server (异步，确认后同步)
-    socket.emit('send-danmaku', {
-      roomId: mediaItem.id,  // 改: 'wallpaper_id' → 'roomId'
-      message: message,
-      userId: socket.id || 'anonymous',
-    });
-    console.log('Emitted send-danmaku:', { roomId: mediaItem.id, message });
-  };
-
+  // [核心修正] 添加 handlePurchase 函数的定义
   const handlePurchase = async () => {
+    if (!mediaItem) return;
     setPurchaseState('pending');
     try {
       const response = await fetch('/api/create-payment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mediaId: mediaItem.id }),
+        body: JSON.stringify({
+          mediaId: mediaItem.id,
+          userId: socket.id // 传递 userId
+        }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Payment creation failed');
       if (data.paymentUrl) window.location.href = data.paymentUrl;
     } catch (error) {
+      console.error("Purchase Error:", error);
       setPurchaseState('error');
     }
+  };
+
+  // 保持你最新版本的 handleSendDanmaku
+  const handleSendDanmaku = (userInputText) => {
+    if (!mediaItem) return;
+    const videoElement = document.querySelector('video');
+    const currentTime = videoElement ? videoElement.currentTime : 0;
+    const optimisticDanmaku = {
+      id: `temp-${Date.now()}`,
+      content: userInputText,
+      user_id: socket.id || 'anonymous',
+      timestamp: currentTime,
+      color: '#FFFFFF',  // 生产：默认 color
+      type: 'scroll',  // 生产：默认 type
+    };
+    if (isMountedRef.current) setDanmakus((prev) => [...prev, optimisticDanmaku]);
+    const dataToSend = {
+      roomId: mediaItem.id,
+      text: userInputText,
+      time: currentTime,
+      color: '#FFFFFF',  // 生产：传 color
+      type: 'scroll',  // 生产：传 type
+    };
+    socket.emit('send-danmaku', dataToSend);
+    console.log('Emitted send-danmaku with standard data:', dataToSend);
   };
 
   return (
@@ -295,23 +208,21 @@ export const LargeMedia3D = ({ mediaItem, startPosition, onClose }) => {
         <OrbitControls />
       </Canvas>
       
-      <DanmakuUI
-        danmakus={danmakus}
-        onSendDanmaku={handleSendDanmaku}
-        onPurchase={handlePurchase}
-        purchaseState={purchaseState}
+      <DanmakuOverlay
         mediaItem={mediaItem}
+        danmakuList={danmakus}
+        onDanmakuSubmit={handleSendDanmaku}
+        purchaseState={purchaseState}
+        onPurchase={handlePurchase}
       />
     </div>
   );
 };
 
-
 // ===================================================================
-//  4. Cube 组件 (保持不变)
+//  3. Cube 组件 (保持不变)
 // ===================================================================
 export const Cube = ({ media, onMediaClick, onRefreshComplete, refreshing }) => {
-  // ... 您原有的 Cube 组件代码保持不变 ...
   const { scene } = useThree();
   const textureLoader = useLoader(THREE.TextureLoader, media.filter(item => item.type === 'image').map(item => item.path));
   const videoTextures = useMemo(() => {

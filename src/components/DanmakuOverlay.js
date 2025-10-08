@@ -1,4 +1,4 @@
-// 文件路径: src/components/DanmakuOverlay.js (生产适配版)
+// 文件路径: src/components/DanmakuOverlay.js (响应式生产适配版)
 import React, { useState } from 'react';
 import { socket } from '../lib/socket';  // 新增：import socket for userId
 
@@ -21,7 +21,7 @@ const DanmakuTrackItem = ({ content }) => {
 
   return (
     <div
-      className="absolute whitespace-nowrap text-white text-2xl font-bold"
+      className="absolute whitespace-nowrap text-white text-xl sm:text-2xl font-bold"  // 响应式：移动小字体
       style={{
         top: `${topPosition}%`,
         right: 0,
@@ -83,24 +83,24 @@ export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit, purcha
         ))}
       </div>
 
-      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4 pointer-events-auto">
+      <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-4 pointer-events-auto p-2 sm:p-4 w-full max-w-md mx-auto">  // 响应式：移动全宽小 padding
           <button
               onClick={handlePurchase}
               disabled={localPurchaseState === 'pending'}
-              className="px-6 py-2 bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-500 active:bg-blue-700 transition-colors disabled:opacity-50"
+              className="px-3 py-2 w-full bg-blue-600 text-white font-bold rounded-lg shadow-lg hover:bg-blue-500 active:bg-blue-700 transition-colors disabled:opacity-50 text-sm sm:text-base"  // 响应式：移动小 padding/字体
           >
               {buttonText}
           </button>
-          <form onSubmit={handleSubmit} className="flex gap-2">
+          <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-2 w-full">
               <input
                   type="text"
                   value={danmakuInput}
                   onChange={(e) => setDanmakuInput(e.target.value)}
                   placeholder="Send a comment..."
                   maxLength={50}  // 生产：限长
-                  className="w-64 px-4 py-2 bg-gray-800 bg-opacity-80 text-white rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500"
+                  className="w-full px-2 py-2 bg-gray-800 bg-opacity-80 text-white rounded-lg border border-gray-600 focus:outline-none focus:border-blue-500 text-sm sm:text-base"  // 响应式：移动小 padding/字体
               />
-              <button type="submit" className="px-4 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500">
+              <button type="submit" className="px-3 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-500 text-sm sm:text-base">  // 响应式：移动小 padding/字体
                   Send
               </button>
           </form>

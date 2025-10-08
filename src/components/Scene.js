@@ -1,4 +1,4 @@
-// src/components/Scene.js (终极完整版 - 生产适配)
+// src/components/Scene.js (终极完整版 - 响应式生产适配)
 import { Text, OrbitControls, Environment } from '@react-three/drei';
 import React, { Suspense, useMemo, useCallback, useRef, useEffect, useState } from 'react';
 import { Canvas, useLoader, useFrame, useThree } from '@react-three/fiber';
@@ -8,13 +8,14 @@ import { socket } from '../lib/socket';
 import { DanmakuOverlay } from './DanmakuOverlay';  // 整合：用独立 Overlay 替换内嵌 UI
 
 // ===================================================================
-//  1. 3D 场景组件 (修复 state update warn)
+//  1. 3D 场景组件 (响应式字体调整)
 // ===================================================================
 const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
   const frameRef = useRef();
   const animationTime = useRef(0);
   const [aspectRatio, setAspectRatio] = useState(2 / 3);
-  const isMountedRef = useRef(true);  // 新增：防 unmounted setState
+  const isMountedRef = useRef(true);  // 防 unmounted setState
+  const { viewport } = useThree();  // 响应式：获取 viewport 尺寸
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -29,13 +30,13 @@ const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
       video.crossOrigin = 'anonymous';
       const videoTexture = new THREE.VideoTexture(video);
       video.onloadedmetadata = () => {
-        if (isMountedRef.current) setAspectRatio(video.videoWidth / video.videoHeight);  // 防 unmounted
+        if (isMountedRef.current) setAspectRatio(video.videoWidth / video.videoHeight);
       };
       video.src = mediaItem.path;
       return videoTexture;
     } else {
       const tex = new THREE.TextureLoader().load(mediaItem.path, (loadedTex) => {
-        if (isMountedRef.current) setAspectRatio(loadedTex.image.naturalWidth / loadedTex.image.naturalHeight);  // 防 unmounted
+        if (isMountedRef.current) setAspectRatio(loadedTex.image.naturalWidth / loadedTex.image.naturalHeight);
       });
       tex.colorSpace = THREE.SRGBColorSpace;
       return tex;
@@ -93,13 +94,16 @@ const LargeMediaContent = ({ mediaItem, startPosition, onClose }) => {
     }
   });
 
+  // 响应式：字体大小基于 viewport
+  const fontSize = Math.min(0.15, viewport.width / 20);  // 移动小字体
+
   return (
     <group ref={frameRef} onDoubleClick={onClose}>
       <mesh geometry={frameGeometry} material={frameMaterial} />
       {texture && <mesh position={[0, 0, 0.051]}><planeGeometry args={[displayWidth, displayHeight]} /><meshBasicMaterial map={texture} /></mesh>}
       <mesh position={[0, 0, -0.051]}><planeGeometry args={[frameWidth, frameHeight]} /><meshPhysicalMaterial color={0xffd700} metalness={0.9} roughness={0.1} /></mesh>
-      <Text position={[0, 0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={0.15} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">Welcome to the Cube!</Text>
-      <Text position={[0, -0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={0.15} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">Love it? Share a danmaku!</Text>
+      <Text position={[0, 0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={fontSize} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">Welcome to the Cube!</Text>
+      <Text position={[0, -0.08, -0.06]} rotation={[0, Math.PI, 0]} fontSize={fontSize} font="/fonts/STXINGKA.TTF" color="#000000" anchorX="center" anchorY="middle">Love it? Share a danmaku!</Text>
     </group>
   );
 };
@@ -197,7 +201,7 @@ export const LargeMedia3D = ({ mediaItem, startPosition, onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-50 w-full h-full">  // 响应式：明确 w-full h-full
       <Canvas camera={{ position: [0, 0, 8], fov: 50 }}>
         <ambientLight intensity={0.8} />
         <pointLight position={[10, 10, 10]} intensity={1} />

@@ -1,4 +1,4 @@
-// src/components/OriginalPrototype.js (终极完整版，生产适配)
+// src/components/OriginalPrototype.js (终极完整版，响应式生产适配)
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
@@ -7,11 +7,29 @@ import * as THREE from 'three';
 // 确保从 Scene.js 导入的组件名与导出的名称一致
 import { Cube, LargeMedia3D } from './Scene';
 
+// [新增] 辅助函数：根据屏幕宽度判断是否为移动设备
+const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
+
 export default function LivingCubeApp() {
   const [media, setMedia] = useState(null);
   const [selectedMedia, setSelectedMedia] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // [新增] 使用 state 来管理相机位置，并根据当前是否为移动设备设置初始值
+  const [cameraPosition, setCameraPosition] = useState(isMobile() ? [8, 8, 8] : [5, 5, 5]);
+
+  // [新增] 使用 useEffect 来监听窗口大小变化，并动态调整相机位置
+  useEffect(() => {
+    const handleResize = () => {
+      setCameraPosition(isMobile() ? [8, 8, 8] : [5, 5, 5]);
+    };
+
+    window.addEventListener('resize', handleResize);
+    
+    // 组件卸载时移除监听器，避免内存泄漏
+    return () => window.removeEventListener('resize', handleResize);
+  }, []); // 空依赖数组确保此 effect 只在组件挂载和卸载时运行一次
 
   const handleMediaClick = useCallback((mediaItem, startPosition) => {
     setSelectedMedia({ mediaItem, startPosition });
@@ -86,20 +104,21 @@ export default function LivingCubeApp() {
   };
 
   if (loading) {
-    return <div className="w-screen h-screen flex items-center justify-center bg-black text-white">Loading artworks...</div>;
+    return <div className="w-full h-screen flex items-center justify-center bg-black text-white text-sm sm:text-base">Loading artworks...</div>;  // 响应式：移动小字体
   }
 
   return (
-    <div className="w-screen h-screen relative">
+    <div className="w-full h-screen relative">  // 响应式：w-full (移动全宽)
       <button
         onClick={handleRefresh}
-        className="absolute top-4 right-4 z-50 px-4 py-2 bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-600 active:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        className="absolute top-2 right-2 z-50 px-2 py-1 sm:px-4 sm:py-2 bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-600 active:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"  // 响应式：移动小 padding/字体
         disabled={refreshing}
       >
         {refreshing ? 'Refreshing...' : 'Refresh Gallery'}
       </button>
       
-      <Canvas style={{ background: '#000' }} camera={{ position: [5, 5, 5], fov: 50 }} onCreated={({ gl }) => gl.setClearColor(new THREE.Color('#000000'))}>
+      {/* [修改] 将 camera 的 position 属性绑定到我们动态的 cameraPosition state 上 */}
+      <Canvas style={{ background: '#000' }} camera={{ position: cameraPosition, fov: 50 }} onCreated={({ gl }) => gl.setClearColor(new THREE.Color('#000000'))}>
         <ambientLight intensity={1.5} name="mainAmbientLight" />
         <pointLight position={[10, 10, 10]} intensity={0.2} name="mainPointLight" />
         <Suspense fallback={null}>

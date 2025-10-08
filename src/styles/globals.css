@@ -1,4 +1,4 @@
-/* 文件路径: src/styles/globals.css */
+/* 文件路径: src/styles/globals.css (响应式版) */
 
 @import "tailwindcss";
 
@@ -21,13 +21,19 @@
   }
 }
 
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* --- Danmaku System Styles (Final Production Version) --- */
+/* --- Danmaku System Styles (Final Production Version, 响应式) --- */
 
 .danmaku-container {
   position: absolute;
@@ -42,16 +48,14 @@ body {
 
 .danmaku-item {
   position: absolute;
-  /* 关键修正: 动画的起点完全交给 @keyframes 来控制 */
   transform: translateX(100vw);
 
   color: white;
-  font-size: 20px;
+  font-size: 16px;  /* 响应式：移动小字体 */
   font-weight: bold;
   text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
   white-space: nowrap;
   
-  /* 恢复动画属性 */
   animation-name: fly-across;
   animation-timing-function: linear;
   animation-iteration-count: 1;
@@ -59,14 +63,18 @@ body {
   will-change: transform;
 }
 
+@media (min-width: 768px) {  /* sm+ 桌面大字体 */
+  .danmaku-item {
+    font-size: 20px;
+  }
+}
+
 /* 关键修正：使用一个更简单、更可靠的动画定义 */
 @keyframes fly-across {
   from {
-    /* 动画开始时，元素在屏幕右侧之外 */
     transform: translateX(100vw);
   }
   to {
-    /* 动画结束时，元素移动到其自身宽度的负值位置，确保完全移出屏幕左侧 */
     transform: translateX(-100%);
   }
 }

@@ -1,85 +1,76 @@
-// src/pages/api/create-payment.js (生产适配版)
-const ALIPAY_GATEWAY = 'https://openapi-sandbox.alipaydev.com/gateway.do';
+// src/pages/api/create-payment.js
+import { Paddle, Environment } from '@paddle/paddle-node-sdk';
+import { createDirectus, rest, createItem, readItem, staticToken, updateItem } from '@directus/sdk';
 
+/**
+ * Living Cube - v1.3 支付后端 (最终修正版)
+ * API Endpoint: /api/create-payment
+ */
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).end('Method Not Allowed');
   }
 
-  // 生产：验证 JSON body
-  if (req.headers['content-type'] !== 'application/json') {
-    return res.status(400).json({ message: 'Content-Type must be application/json' });
-  }
-
   try {
-    // 动态 import SDK (ESLint 合规, 避 top-level require)
-    const { Alipay } = await import('alipay-sdk');
-    const { createDirectus, rest, readItem, createItem, updateItem, staticToken } = await import('@directus/sdk');
-
-    // 初始化 Alipay SDK
-    const alipay = new Alipay({
-      appId: process.env.ALIPAY_APP_ID,
-      privateKey: process.env.ALIPAY_PRIVATE_KEY,
-      alipayPublicKey: process.env.ALIPAY_PUBLIC_KEY,
-      gateway: ALIPAY_GATEWAY,
-      timeout: 5000,
-      camelcase: false,
-    });
-
     const directus = createDirectus(process.env.DIRECTUS_URL)
       .with(staticToken(process.env.DIRECTUS_STATIC_TOKEN))
       .with(rest());
-    const { mediaId, userId = 'anonymous' } = req.body;
 
-    if (!mediaId) {
-      return res.status(400).json({ message: 'Error: Missing product ID (mediaId)' });
+    const paddle = new Paddle(process.env.PADDLE_API_KEY, {
+      environment: process.env.PADDLE_ENVIRONMENT === 'sandbox' ? Environment.sandbox : Environment.production,
+    });
+
+    const { wallpaper_id, bundle_id, user_id } = req.body;
+
+    if (!user_id) {
+        return res.status(400).json({ message: '错误: 必须提供 user_id。' });
+    }
+    if (!wallpaper_id && !bundle_id) {
+        return res.status(400).json({ message: '错误: 必须提供 wallpaper_id 或 bundle_id。' });
     }
 
-    const wallpaper = await directus.request(readItem('wallpapers', mediaId, {
-      fields: ['id', 'price_cents', 'name']
-    }));
-    
-    if (!wallpaper || wallpaper.price_cents === undefined || wallpaper.price_cents === null) {
-      return res.status(404).json({ message: `Error: Wallpaper with ID ${mediaId} does not exist or price is not set` });
-    }
-
-    const totalAmount = (wallpaper.price_cents / 100).toFixed(2);
-
-    const newPurchase = await directus.request(createItem('purchases', {
-      user_id: userId,
-      wallpaper_id: wallpaper.id,
-      price_cents: wallpaper.price_cents,
-      payment_provider: 'alipay',
+    const initialPurchase = await directus.request(createItem('purchases', {
+      user_id: user_id,
+      wallpaper_id: wallpaper_id || null,
+      bundle_id: bundle_id || null,
       status: 'pending',
+      type: 'monetary',
+      payment_provider: 'paddle',
+      price_cents: 0,
     }));
-    
-    const outTradeNo = `LC-${newPurchase.id}-${Date.now()}`;
-    
-    await directus.request(updateItem('purchases', newPurchase.id, {
-      external_order_id: outTradeNo,
-    }));
-    
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://app.run-gen.com';
-    const result = await alipay.pageExecute('alipay.trade.page.pay', 'GET', {
-      bizContent: {
-        out_trade_no: outTradeNo,
-        product_code: 'FAST_INSTANT_TRADE_PAY',
-        total_amount: totalAmount,
-        subject: `LivingCube: ${wallpaper.name}`,
-        quit_url: baseUrl,
-        return_url: `${baseUrl}/success`,
+    const internalPurchaseId = initialPurchase.id;
+
+    const transaction = await paddle.transactions.create({
+      items: [{
+        // 【核心修正】: 修正了致命的拼写错误 PADELE -> PADDLE
+        priceId: process.env.PADDLE_PRICE_ID_SINGLE, 
+        quantity: 1
+      }],
+      customData: {
+        internal_purchase_id: String(internalPurchaseId), 
       },
     });
 
-    res.status(200).json({ 
-      message: 'Alipay payment URL generated',
-      paymentUrl: result,
-      outTradeNo: outTradeNo
+    await directus.request(updateItem('purchases', internalPurchaseId, {
+        provider_transaction_id: transaction.id, 
+    }));
+    
+    res.status(200).json({
+      message: 'Paddle 交易创建成功。',
+      paymentUrl: transaction.checkout.url,
+      transactionId: transaction.id,
+      internalPurchaseId: internalPurchaseId
     });
 
   } catch (error) {
-    console.error('Payment creation error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    console.error('Paddle 支付创建错误:', error);
+    if (error.name === 'PaddleSDKError') {
+      return res.status(500).json({ message: 'Paddle API 错误', details: error.message });
+    }
+    if (error.response && error.response.status === 400) {
+      return res.status(400).json({ message: '数据库验证错误', details: error.message });
+    }
+    return res.status(500).json({ message: '内部服务器错误' });
   }
 }

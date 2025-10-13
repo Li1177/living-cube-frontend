@@ -1,9 +1,9 @@
-// src/components/OriginalPrototype.js (已修复 ESLint 错误)
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { Cube, LargeMedia3D } from './Scene';
+import AuthStatus from './AuthStatus'; // <-- 新增导入
 
 const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
 
@@ -85,9 +85,12 @@ export default function LivingCubeApp() {
   }
 
   return (
-    // [修正] 将注释移到了标签外部，修复了导致构建失败的 ESLint 错误
     <div className="w-full h-screen relative">
-      {/* 响应式：w-full (移动全宽) */}
+      {/* 新增 AuthStatus 组件 */}
+      <div className="absolute top-2 left-2 z-50">
+        <AuthStatus />
+      </div>
+
       <button
         onClick={handleRefresh}
         className="absolute top-2 right-2 z-50 px-2 py-1 sm:px-4 sm:py-2 bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-600 active:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm"

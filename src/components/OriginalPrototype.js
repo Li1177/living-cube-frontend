@@ -1,9 +1,9 @@
+// 文件路径: src/components/OriginalPrototype.js
 import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { Cube, LargeMedia3D } from './Scene';
-import AuthStatus from './AuthStatus';
 import { useAppStore } from '../lib/store'; // <-- 导入我们新的 "中央大脑"
 
 const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
@@ -75,10 +75,6 @@ export default function LivingCubeApp() {
 
   return (
     <div className="w-full h-screen relative">
-      <div className="absolute top-2 left-2 z-50">
-        <AuthStatus />
-      </div>
-
       <button onClick={handleRefresh} className="absolute top-2 right-2 z-50 px-2 py-1 sm:px-4 sm:py-2 bg-gray-700 text-white rounded-lg shadow-lg hover:bg-gray-600 active:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm" disabled={refreshing}>
         {refreshing ? 'Refreshing...' : 'Refresh Gallery'}
       </button>

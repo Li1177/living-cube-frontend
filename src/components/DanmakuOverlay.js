@@ -1,7 +1,8 @@
-// 文件路径: src/components/DanmakuOverlay.js
+//文件路径：src/components/DanmakuOverlay.js
 import React, { useState } from 'react';
 import { useAppStore } from '../lib/store';
 import { ChoiceModal } from './ChoiceModal';
+import { useSession } from 'next-auth/react';
 
 const danmakuAnimation = `
   @keyframes danmaku-scroll {
@@ -64,9 +65,11 @@ const DanmakuTrackItem = ({ content }) => {
 
 export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit }) => {
   const [danmakuInput, setDanmakuInput] = useState('');
-  const openChoiceModal = useAppStore((state) => state.openChoiceModal);
+  const { openChoiceModal, openAuthModal } = useAppStore();
+  const { data: session } = useSession();
 
   const handleClaimClick = () => {
+    // 移除登录检查，直接打开 ChoiceModal（无论是否登录）
     if (openChoiceModal) {
       openChoiceModal(mediaItem);
     } else {
@@ -76,7 +79,11 @@ export const DanmakuOverlay = ({ mediaItem, danmakuList, onDanmakuSubmit }) => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    // 占位，无操作
+    if (!session) {
+      openAuthModal(() => handleSubmit(e)); // 缓存回调：登录后重新执行提交
+      return;
+    }
+    // 占位，无操作（后续 v1.8 填充）
   };
 
   return (

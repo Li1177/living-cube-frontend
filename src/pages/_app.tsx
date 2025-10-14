@@ -1,9 +1,9 @@
-// 文件路径：src/pages/_app.tsx
 import '@/styles/globals.css';
 import type { AppProps } from 'next/app';
 import { useEffect } from 'react';
 import { SessionProvider, useSession } from 'next-auth/react';
 import { socket } from '../lib/socket';
+import { AuthModal } from '../components/AuthModal';
 
 // 我们将 Paddle 初始化逻辑封装在一个独立的组件中，以方便访问 session 数据
 function PaddleLoader() {
@@ -57,6 +57,7 @@ export default function App({ Component, pageProps: { session, ...pageProps } }:
     <SessionProvider session={session}>
       <PaddleLoader /> {/* <-- 在此处加载 Paddle 初始化器 */}
       <Component {...pageProps} />
+      <AuthModal /> {/* <-- [新增 v1.6] 全局渲染 AuthModal */}
     </SessionProvider>
   );
 }

@@ -1,9 +1,10 @@
-// 文件路径: src/components/ChoiceModal.tsx
 import React from 'react';
 import { useAppStore } from '../lib/store';
+import { useSession } from 'next-auth/react';
 
 export const ChoiceModal = () => {
-  const { isChoiceModalOpen, closeChoiceModal } = useAppStore();
+  const { isChoiceModalOpen, closeChoiceModal, openAuthModal } = useAppStore();
+  const { data: session } = useSession();
 
   if (!isChoiceModalOpen) {
     return null;
@@ -11,19 +12,35 @@ export const ChoiceModal = () => {
 
   // 对于 v1.5，所有按钮暂无任何反应（占位）
   const handleSingleClick = () => {
-    // 占位，无操作
+    if (!session) {
+      openAuthModal(() => handleSingleClick());
+      return;
+    }
+    // 占位，无操作（后续 v1.7 填充）
   };
 
   const handleFivePackClick = () => {
-    // 占位，无操作
+    if (!session) {
+      openAuthModal(() => handleFivePackClick());
+      return;
+    }
+    // 占位，无操作（后续 v1.7 填充）
   };
 
   const handleTenPackClick = () => {
-    // 占位，无操作
+    if (!session) {
+      openAuthModal(() => handleTenPackClick());
+      return;
+    }
+    // 占位，无操作（后续 v1.7 填充）
   };
 
   const handleWatchAdClick = () => {
-    // 占位，无操作
+    if (!session) {
+      openAuthModal(() => handleWatchAdClick());
+      return;
+    }
+    // 占位，无操作（后续 v1.8 填充）
   };
 
   return (

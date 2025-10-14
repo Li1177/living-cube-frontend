@@ -1,4 +1,3 @@
-// 文件路径: src/lib/store.ts
 import { create } from 'zustand';
 
 interface AppState {
@@ -15,6 +14,13 @@ interface AppState {
   itemToPurchase: any | null;
   openChoiceModal: (item: any) => void;
   closeChoiceModal: () => void;
+
+  // --- [新增 v1.6] 认证模态框状态管理 ---
+  isAuthModalOpen: boolean;
+  openAuthModal: (callback?: () => void) => void;
+  closeAuthModal: () => void;
+  authSuccessCallback: (() => void) | null;
+  setAuthSuccessCallback: (callback: (() => void) | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -22,6 +28,7 @@ export const useAppStore = create<AppState>((set) => ({
   selectedMedia: null,
   isChoiceModalOpen: false, // [新增 v1.4] 默认关闭
   itemToPurchase: null,   // [新增 v1.4] 默认没有商品
+  isAuthModalOpen: false, // [新增 v1.6] 默认关闭
 
   enterImmersiveMode: (mediaItem, startPosition) => set({
     isImmersive: true,
@@ -41,4 +48,16 @@ export const useAppStore = create<AppState>((set) => ({
     isChoiceModalOpen: false,
     itemToPurchase: null,
   }),
+
+  // --- [新增 v1.6] 认证模态框 Actions ---
+  authSuccessCallback: null,
+  openAuthModal: (callback) => set({
+    isAuthModalOpen: true,
+    authSuccessCallback: callback || null,
+  }),
+  closeAuthModal: () => set({
+    isAuthModalOpen: false,
+    authSuccessCallback: null,
+  }),
+  setAuthSuccessCallback: (callback) => set({ authSuccessCallback: callback }),
 }));

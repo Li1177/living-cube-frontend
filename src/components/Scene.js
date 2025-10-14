@@ -17,7 +17,11 @@ import { useAppStore } from '../lib/store';
 const LargeMediaContent = ({ mediaItem, startPosition }) => {
   const frameRef = useRef();
   const animationTime = useRef(0);
+  
+  // 【核心修正】: 我们现在使用 useState 来管理 texture 和 aspectRatio
+  const [texture, setTexture] = useState(null);
   const [aspectRatio, setAspectRatio] = useState(2 / 3);
+
   const isMountedRef = useRef(true);
   const { viewport } = useThree();
   const exitImmersiveMode = useAppStore((state) => state.exitImmersiveMode);
@@ -27,35 +31,71 @@ const LargeMediaContent = ({ mediaItem, startPosition }) => {
       quat: new THREE.Quaternion(),
   }).current;
 
-
+  // 这个 effect 用于正确处理组件的挂载与卸载状态，保持不变
   useEffect(() => {
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
 
-  const texture = useMemo(() => {
+  // 【核心修正】: 我们将所有异步的、带有副作用的加载逻辑，从 useMemo 移入 useEffect
+  useEffect(() => {
+    // 每次 mediaItem 变化时，先清理旧的 texture，防止闪烁
+    setTexture(null);
+
     if (mediaItem.type === 'video') {
       const video = document.createElement('video');
       video.loop = true;
       video.muted = false;
       video.crossOrigin = 'anonymous';
       const videoTexture = new THREE.VideoTexture(video);
-      video.onloadedmetadata = () => { if (isMountedRef.current) setAspectRatio(video.videoWidth / video.videoHeight); };
+      
+      video.onloadedmetadata = () => { 
+        if (isMountedRef.current) {
+          setAspectRatio(video.videoWidth / video.videoHeight);
+        }
+      };
       video.src = mediaItem.path;
-      return videoTexture;
+      
+      // 安全地设置 texture
+      if (isMountedRef.current) {
+        setTexture(videoTexture);
+      }
     } else {
-      const tex = new THREE.TextureLoader().load(mediaItem.path, (loadedTex) => { if (isMountedRef.current) setAspectRatio(loadedTex.image.naturalWidth / loadedTex.image.naturalHeight); });
-      tex.colorSpace = THREE.SRGBColorSpace;
-      return tex;
+      // 图片加载逻辑
+      const loader = new THREE.TextureLoader();
+      loader.load(
+        mediaItem.path,
+        (loadedTex) => {
+          // 【AI 建议的核心实践】: 在异步回调中，检查组件是否仍然挂载
+          if (isMountedRef.current) {
+            loadedTex.colorSpace = THREE.SRGBColorSpace;
+            setAspectRatio(loadedTex.image.naturalWidth / loadedTex.image.naturalHeight);
+            setTexture(loadedTex);
+          }
+        },
+        undefined, // onProgress callback
+        (error) => {
+          console.error('An error happened loading the texture:', error);
+        }
+      );
     }
-  }, [mediaItem]);
+  }, [mediaItem]); // 这个 effect 依赖于 mediaItem，当它变化时会重新运行
 
+  // 这个独立的 effect 用于处理 texture 资源的播放/暂停/销毁，这个结构本身是正确的
   useEffect(() => {
     if (texture && texture.isVideoTexture) {
       const video = texture.image;
       video.play().catch(() => {});
-      return () => { video.pause(); video.src = ''; video.load(); texture.dispose(); };
+      // 返回一个清理函数
+      return () => { 
+        video.pause(); 
+        video.src = ''; 
+        video.load(); 
+        // 确保在 video 资源被移除后才销毁 texture
+        if (texture) texture.dispose(); 
+      };
     }
+    // 当组件卸载或 texture 变化时，销毁旧的 texture 资源
     return () => { if (texture) { texture.dispose(); } }
   }, [texture]);
 
@@ -83,6 +123,7 @@ const LargeMediaContent = ({ mediaItem, startPosition }) => {
     endQuat: new THREE.Quaternion(0, 0, 0, 1)
   }), []);
 
+  // useFrame 动画逻辑保持不变...
   useFrame((state, delta) => {
     if (!frameRef.current) return;
     animationTime.current += delta;
@@ -137,7 +178,6 @@ const LargeMediaContent = ({ mediaItem, startPosition }) => {
 
 export const LargeMedia3D = ({ mediaItem, startPosition }) => {
   const [danmakus, setDanmakus] = useState([]);
-  const [purchaseState, setPurchaseState] = useState('idle');
   const newDanmakuHandlerRef = useRef(null);
   const isMountedRef = useRef(false);
 
@@ -174,7 +214,6 @@ export const LargeMedia3D = ({ mediaItem, startPosition }) => {
     };
   }, [mediaItem]);
 
-  const handlePurchase = async () => { /* ... (逻辑不变) ... */ };
   const handleSendDanmaku = (userInputText) => { /* ... (逻辑不变) ... */ };
 
   return (
@@ -186,16 +225,14 @@ export const LargeMedia3D = ({ mediaItem, startPosition }) => {
           <LargeMediaContent mediaItem={mediaItem} startPosition={startPosition} />
           <Environment preset="sunset" />
         </Suspense>
-        {/* ✨ 核心修复：我们将 OrbitControls 组件加回来！ ✨ */}
         <OrbitControls />
       </Canvas>
       
+      {/* 【核心同步修正】: 调用 DanmakuOverlay 时，移除已废弃的 props */}
       <DanmakuOverlay
         mediaItem={mediaItem}
         danmakuList={danmakus}
         onDanmakuSubmit={handleSendDanmaku}
-        purchaseState={purchaseState}
-        onPurchase={handlePurchase}
       />
     </div>
   );

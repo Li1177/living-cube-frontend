@@ -1,52 +1,135 @@
-import React from 'react';
+'use client';
+
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../lib/store';
 import { useSession } from 'next-auth/react';
+import { initializePaddle, Paddle } from '@paddle/paddle-js';
 
 export const ChoiceModal = () => {
-  const { isChoiceModalOpen, closeChoiceModal, openAuthModal } = useAppStore();
+  const { isChoiceModalOpen, closeChoiceModal, openAuthModal, itemToPurchase } = useAppStore();
   const { data: session } = useSession();
+  const [isPurchased, setIsPurchased] = useState(false);
+  const [paddle, setPaddle] = useState<Paddle | undefined>(undefined);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  useEffect(() => {
+    async function loadPaddle() {
+      if (!process.env.NEXT_PUBLIC_PADDLE_CLIENT_SIDE_TOKEN || !process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT) {
+        console.error("Paddle environment variables are not set.");
+        return;
+      }
+      try {
+        const paddleInstance = await initializePaddle({
+          environment: process.env.NEXT_PUBLIC_PADDLE_ENVIRONMENT as 'sandbox' | 'production',
+          token: process.env.NEXT_PUBLIC_PADDLE_CLIENT_SIDE_TOKEN,
+          eventCallback: (event) => {
+            if (event.name === 'checkout.completed') {
+              setIsPurchased(true);
+              alert('Payment successful! Click the download button to get your artwork.');
+            }
+          },
+        });
+        setPaddle(paddleInstance);
+      } catch (error) {
+        console.error("Failed to initialize Paddle:", error);
+      }
+    }
+    if (isChoiceModalOpen) {
+      loadPaddle();
+    }
+  }, [isChoiceModalOpen]);
 
   if (!isChoiceModalOpen) {
     return null;
   }
 
-  // 对于 v1.5，所有按钮暂无任何反应（占位）
-  const handleSingleClick = () => {
+  const handlePurchase = async (bundle_type: 'single' | 'bundle5' | 'bundle10') => {
     if (!session) {
-      openAuthModal(() => handleSingleClick());
+      openAuthModal(() => handlePurchase(bundle_type));
       return;
     }
-    // 占位，无操作（后续 v1.7 填充）
+    if (!paddle) {
+      alert('Payment system is not ready. Please wait a moment and try again.');
+      return;
+    }
+    try {
+      const wallpaper_id = bundle_type === 'single' ? itemToPurchase?.id : undefined;
+      const response = await fetch('/api/create-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: session.user.id,
+          wallpaper_id,
+          bundle_type,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to create payment');
+      }
+      const data = await response.json();
+      if (data.transactionId) {
+        paddle.Checkout.open({
+          transactionId: data.transactionId,
+        });
+      }
+    } catch (error) {
+      console.error('Payment error:', error);
+      alert('Payment failed. Please try again.');
+    }
   };
 
-  const handleFivePackClick = () => {
-    if (!session) {
-      openAuthModal(() => handleFivePackClick());
-      return;
-    }
-    // 占位，无操作（后续 v1.7 填充）
-  };
-
-  const handleTenPackClick = () => {
-    if (!session) {
-      openAuthModal(() => handleTenPackClick());
-      return;
-    }
-    // 占位，无操作（后续 v1.7 填充）
-  };
+  const handleSingleClick = () => handlePurchase('single');
+  const handleFivePackClick = () => handlePurchase('bundle5');
+  const handleTenPackClick = () => handlePurchase('bundle10');
 
   const handleWatchAdClick = () => {
     if (!session) {
       openAuthModal(() => handleWatchAdClick());
       return;
     }
-    // 占位，无操作（后续 v1.8 填充）
+    alert('Ad unlock feature will be implemented in a future version.');
+  };
+
+  const handleDownload = async () => {
+    if (!itemToPurchase?.id) {
+      alert('No artwork selected!');
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      const response = await fetch(`/api/download?wallpaper_id=${itemToPurchase.id}`);
+      if (!response.ok) {
+        let errorMessage = 'Download failed';
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const error = await response.json();
+          errorMessage = error.message || errorMessage;
+        } else {
+          const errorText = await response.text();
+          console.error('Non-JSON error response:', errorText);
+        }
+        throw new Error(errorMessage);
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `artwork_${itemToPurchase.id}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      console.error('Download error:', error);
+      alert(`Download failed: ${error.message}`);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-80 z-50 flex justify-center items-center pointer-events-auto p-4">
       <div className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl shadow-2xl w-full max-w-2xl text-white border border-gray-700 overflow-hidden">
-        {/* Header */}
         <div className="relative bg-gradient-to-r from-purple-900/40 to-blue-900/40 px-6 py-5 border-b border-gray-700">
           <div className="flex justify-between items-center">
             <div>
@@ -64,10 +147,8 @@ export const ChoiceModal = () => {
           </div>
         </div>
 
-        {/* Content */}
         <div className="p-6">
           <div className="grid md:grid-cols-2 gap-6">
-            {/* Purchase Options */}
             <div className="space-y-3">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-lg">
@@ -76,7 +157,6 @@ export const ChoiceModal = () => {
                 <h3 className="text-lg font-semibold">Purchase Options</h3>
               </div>
 
-              {/* Single */}
               <button 
                 onClick={handleSingleClick}
                 className="w-full group relative bg-gradient-to-br from-gray-700 to-gray-800 hover:from-blue-600 hover:to-blue-700 rounded-xl p-4 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-blue-500/20 border border-gray-600 hover:border-blue-500"
@@ -90,7 +170,6 @@ export const ChoiceModal = () => {
                 </div>
               </button>
 
-              {/* 5-Pack with Badge */}
               <button 
                 onClick={handleFivePackClick}
                 className="w-full group relative bg-gradient-to-br from-gray-700 to-gray-800 hover:from-purple-600 hover:to-purple-700 rounded-xl p-4 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-purple-500/20 border border-gray-600 hover:border-purple-500"
@@ -107,7 +186,6 @@ export const ChoiceModal = () => {
                 </div>
               </button>
 
-              {/* 10-Pack */}
               <button 
                 onClick={handleTenPackClick}
                 className="w-full group relative bg-gradient-to-br from-gray-700 to-gray-800 hover:from-pink-600 hover:to-rose-700 rounded-xl p-4 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-pink-500/20 border border-gray-600 hover:border-pink-500"
@@ -125,7 +203,6 @@ export const ChoiceModal = () => {
               </button>
             </div>
 
-            {/* Watch Ad Option */}
             <div className="space-y-3">
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center text-lg">
@@ -159,12 +236,23 @@ export const ChoiceModal = () => {
               </div>
             </div>
           </div>
+
+          {isPurchased && (
+            <div className="mt-6 text-center">
+              <button 
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className={`px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white font-bold rounded-xl hover:from-blue-500 hover:to-purple-500 transition-all duration-300 ${isDownloading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                {isDownloading ? 'Downloading...' : 'Download Now'}
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Footer Info */}
         <div className="px-6 py-4 bg-gray-900/50 border-t border-gray-700">
           <p className="text-xs text-gray-400 text-center">
-            💡 All purchases are processed securely • Choose the option that works best for you
+            💡 All payments are processed securely • Choose the option that works best for you
           </p>
         </div>
       </div>
